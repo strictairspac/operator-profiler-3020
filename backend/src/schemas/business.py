@@ -28,3 +28,10 @@ class PlanInput(BaseModel):
 class TraceInput(BaseModel):
  name:str=Field(min_length=2,max_length=120)
  plan_id:int
+class IndexInput(BaseModel):
+ dataset_id:int
+ fields:list[str]=Field(min_length=1,max_length=2)
+ @model_validator(mode='after')
+ def validate(self):
+  from src.services.indexing.core import normalize_fields
+  self.fields=list(normalize_fields(self.fields));return self

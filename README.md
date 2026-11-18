@@ -40,6 +40,14 @@ seed三账号、三个数据集（240行日班、空数据、重复右键）、�
 
 DSL最多6步，首步仅scan readings；filter eq/gte/lte；hash_join仅readings.sensor_id=sensors.sensor_id且最多一次；group仅value的count/sum/avg。禁止eval、任意代码和任意SQL。最多100传感器、2000采样、10000连接输出行；超限失败，不保存部分结果。JSON非法、字段错误、非法算子、孤立引用、重复名有可恢复错误。任务使用Redis简单单消费者，进程崩溃后的running任务不自动重试，保留供人工复查后新建任务。
 
+## readings 持久化二级索引
+为解决筛选采样每次全扫，新增对 readings 的 `sensor_id`、`value` 单列与 `(sensor_id, value)` 组合持久化索引（页面「持久索引」建/删/重试）。
+- 条目 `(键..., 回表位置)` 排序落库（index_meta/index_entries 两表，重启可用）；每条采样一个条目，重复记录全部保留，value 键沿用六位精度。
+- 建设为异步 Redis 队列任务，状态机 `building → available/failed`。建设期间数据集可并发编辑：发布事务锁数据集行并复核版本，版本不符任务内按最新数据重试，发布覆盖建设期间所有已保存修改；重试复用同一索引行，不重复建。半成品仅 `staged`，发布事务整体翻 `active`，执行永远读不到半成品；worker 崩溃后启动恢复会把 building 索引重新入队。
+- 执行按受理快照选索引：仅 `available` 且版本（readings 规范 JSON 的 SHA-256）等于快照版本、并通过条目计数/校验和/有序性/回表键完整校验的索引才进入目录；版本不符跳过，损坏登记 failed 并回退全扫，引擎运行期再异常也安全兜底全扫。
+- 仅当估算访问量（跨越条目+回表）严格小于全扫才用索引，低选择性保留全扫；回表按原始位置升序并二次谓词复核，输出行顺序、checksum 与全扫模式逐字节一致。每个 filter 的剖面 detail.access 记录访问路径、选择依据、跨越条目数、回表/保留行数与候选估算。
+- 本地无 PostgreSQL/Redis 时，零第三方依赖的算法内核与 sqlite 同构仓储可端到端验证：`cd backend && python3 -I tests/test_indexing.py`（86 项断言，覆盖建设/发布/中断恢复/并发编辑/旧快照/损坏回退/结果等价与访问量）。
+
 ## 技术、目录与本地开发
 Python3.11 / FastAPI / SQLAlchemy / psycopg / Redis / PostgreSQL16；原生 HTML/CSS/JS ES modules / nginx1.27。五服务frontend/backend/worker/db/redis均健康探针，命名卷数据库/Redis/共享产物。DB/Redis健康后启动backend，backend健康后启worker/frontend。
 

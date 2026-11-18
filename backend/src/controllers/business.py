@@ -1,4 +1,4 @@
-from src.services import datasets,plans,traces
+from src.services import datasets,plans,traces,indexes
 from src.services.audit import log
 def save_dataset(data,user,item_id=None):
  row=datasets.save(data,item_id);log(user.email,'dataset.save',row['name']);return row
@@ -6,3 +6,11 @@ def save_plan(data,user,item_id=None):
  row=plans.save(data,item_id);log(user.email,'plan.save',row['name']);return row
 def start_trace(data,user):
  row=traces.create(data);log(user.email,'trace.queue',row['name']);return row
+def create_index(data,user):
+ row=indexes.create_index(data.model_dump(),user)
+ log(user.email,'index.create','%s:%s'%(row['dataset_id'],row['fields_key']));return row
+def retry_index(item_id,user):
+ row=indexes.retry_index(item_id)
+ log(user.email,'index.retry','%s:%s'%(row['id'],row['fields_key']));return row
+def delete_index(item_id,user):
+ row=indexes.delete_index(item_id);log(user.email,'index.delete',str(item_id));return row
